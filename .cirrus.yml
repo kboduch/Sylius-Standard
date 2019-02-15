@@ -1,30 +1,3 @@
-install_deps_task:
-  container:
-    image: quay.io/sylius/php:latest
-  composer_cache:
-    folder: vendor
-    fingerprint_script: cat composer.lock
-    populate_script: composer
-
-build_task:
-  container:
-    image: node:10-alpine
-  node_modules_cache:
-    folder: node_modules
-    fingerprint_script: cat yarn.lock
-    populate_script: yarn install
-  build_script: GULP_ENV=prod yarn build
-
-
-
-echo_task:
-  env:
-    FOO: Bar
-  echo_script: echo $FOO
-
-
-
-
 container:
   image: docksal/cli:2.2-php7.2
   cpu: 4 #number of cpus
