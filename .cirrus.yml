@@ -1,0 +1,100 @@
+install_deps_task:
+  container:
+    image: quay.io/sylius/php:latest
+  composer_cache:
+    folder: vendor
+    fingerprint_script: cat composer.lock
+    populate_script: composer
+
+build_task:
+  container:
+    image: node:10-alpine
+  node_modules_cache:
+    folder: node_modules
+    fingerprint_script: cat yarn.lock
+    populate_script: yarn install
+  build_script: GULP_ENV=prod yarn build
+
+
+
+echo_task:
+  env:
+    FOO: Bar
+  echo_script: echo $FOO
+
+
+
+
+container:
+  image: docksal/cli:2.2-php7.2
+  cpu: 4 #number of cpus
+  memory: 4 #GB
+
+test_task:
+  env:
+    APP_ENV: test_cached
+    SYMFONY_VERSION: "4.2.*"
+    SYLIUS_CACHE_DIR: $HOME/.sylius-cache
+    SYLIUS_BUILD_DIR: etc/build
+
+  composer_cache:
+    folder: vendor
+    fingerprint_script: cat composer.lock
+    populate_script: composer install
+
+  node_modules_cache:
+    folder: node_modules
+    fingerprint_script: cat yarn.lock
+    populate_script: yarn install
+
+  install_chromedrive_script:
+    - |
+      if [ ! -f $SYLIUS_CACHE_DIR/chromedriver ] || [ "$($SYLIUS_CACHE_DIR/chromedriver --version | grep -c 2.34)" = "0" ]; then
+          curl http://chromedriver.storage.googleapis.com/2.34/chromedriver_linux64.zip > chromedriver.zip
+          unzip chromedriver.zip
+          chmod +x chromedriver
+          mv chromedriver $SYLIUS_CACHE_DIR
+      fi
+
+  install_selenium_script:
+    - |
+      if [ ! -f $SYLIUS_CACHE_DIR/selenium.jar ] || [ "$(java -jar $SYLIUS_CACHE_DIR/selenium.jar --version | grep -c 3.4.0)" = "0" ]; then
+          curl http://selenium-release.storage.googleapis.com/3.4/selenium-server-standalone-3.4.0.jar > selenium.jar
+          mv selenium.jar $SYLIUS_CACHE_DIR
+      fi
+
+  sylius_cache_dir_cache:
+    folder: $SYLIUS_CACHE_DIR
+
+  install_script:
+    - APP_DEBUG=1 bin/console doctrine:database:create -vvv # Have to be run with debug = true, to omit generating proxies before setting up the database
+    - bin/console cache:warmup -vvv
+    - bin/console doctrine:migrations:migrate --no-interaction -vvv
+
+    - bin/console assets:install public -vvv
+    - yarn build
+
+    - /sbin/start-stop-daemon --start --quiet --pidfile /tmp/xvfb_99.pid --make-pidfile --background --exec /usr/bin/Xvfb -- :99 -ac -screen 0 1680x1050x16
+    - export DISPLAY=:99
+
+  run_chrome_driver_background_script: $SYLIUS_CACHE_DIR/chromedriver
+  run_selenium_background_script: java -Dwebdriver.chrome.driver=$SYLIUS_CACHE_DIR/chromedriver -jar $SYLIUS_CACHE_DIR/selenium.jar
+  run_server_background_script: bin/console server:run localhost:8080 -d public --quiet
+
+  test_script:
+
+  - composer validate --strict
+
+  - vendor/bin/security-checker security:check
+
+  - vendor/bin/ecs check src
+
+  - vendor/bin/phpspec run --no-interaction -f dot
+
+  - bin/console sylius:fixtures:load --no-interaction -vvv
+
+  - echo "Testing (Behat, without javascript scenarios; ~@javascript && ~@todo && ~@cli)" "Sylius"
+  - vendor/bin/behat --strict --no-interaction -vvv -f progress --tags="~@javascript && ~@todo && ~@cli"
+
+  - echo "Testing (Behat, only javascript scenarios; @javascript && ~@todo && ~@cli)" "Sylius"
+  - vendor/bin/behat --strict --no-interaction -vvv -f progress --tags="@javascript && ~@todo && ~@cli" || vendor/bin/behat --strict --no-interaction -vvv -f progress --tags="@javascript && ~@todo && ~@cli" --rerun
