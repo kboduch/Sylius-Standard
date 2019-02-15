@@ -4,6 +4,11 @@ container:
   memory: 4 #GB
 
 test_task:
+  container:
+    image: docksal/cli:2.2-php7.2
+    cpu: 4 #number of cpus
+    memory: 4 #GB
+
   env:
     APP_ENV: test_cached
     SYMFONY_VERSION: "4.2.*"
